@@ -63,9 +63,8 @@ contract yakuSwap is Ownable {
 
     swap.status = SwapStatus.Completed;
     (bool success,) = swap.toAddress.call{value: swap.amount}("");
-    if(!success) {
-      swap.status = SwapStatus.Created;
-    }
+
+    require(success);
   }
 
   function cancelSwap(bytes32 _swapId) public {
@@ -76,17 +75,14 @@ contract yakuSwap is Ownable {
 
     swap.status = SwapStatus.Cancelled;
     (bool success,) = swap.fromAddress.call{value: swap.amount}("");
-    if(!success) {
-      swap.status = SwapStatus.Created;
-    }
+
+    require(success);
   }
 
   function getFees() public onlyOwner {
-    uint oldTotalFees = totalFees;
     totalFees = 0;
     (bool success,) = owner().call{value: totalFees}("");
-    if(!success) {
-      totalFees = oldTotalFees;
-    }
+    
+    require(success);
   }
 }
