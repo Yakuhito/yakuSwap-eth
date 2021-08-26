@@ -176,6 +176,19 @@ describe("yakuSwap Contract", function () {
       ).to.be.revertedWith("");
     });
 
+    it("Should fail if the swap has been completed before", async function () {
+      const transaction = await yakuSwap.connect(addr3).completeSwap(SECRET_HASH, SECRET);
+
+      await transaction.wait();
+
+      for(var i = 0; i < MAX_BLOCK_HEIGHT; i++) {
+        await ethers.provider.send('evm_mine');
+      }
+
+      await expect(
+        yakuSwap.connect(addr1).cancelSwap(SECRET_HASH)
+      ).to.be.revertedWith("");
+    });
   });
 
   describe("getFees", function () {
