@@ -62,7 +62,8 @@ contract yakuSwap is Ownable {
     require(swap.secretHash == sha256(abi.encodePacked(_secret)));
 
     swap.status = SwapStatus.Completed;
-    if(!payable(swap.toAddress).send(swap.amount)) {
+    (bool success,) = swap.toAddress.call{value: swap.amount}("");
+    if(!success) {
       swap.status = SwapStatus.Created;
     }
   }
@@ -74,7 +75,8 @@ contract yakuSwap is Ownable {
     require(block.number >= swap.startBlock + swap.maxBlockHeight);
 
     swap.status = SwapStatus.Cancelled;
-    if(!payable(swap.fromAddress).send(swap.amount)) {
+    (bool success,) = swap.fromAddress.call{value: swap.amount}("");
+    if(!success) {
       swap.status = SwapStatus.Created;
     }
   }
@@ -82,7 +84,8 @@ contract yakuSwap is Ownable {
   function getFees() public onlyOwner {
     uint oldTotalFees = totalFees;
     totalFees = 0;
-    if(!payable(owner()).send(totalFees)) {
+    (bool success,) = owner().call{value: totalFees}("");
+    if(!success) {
       totalFees = oldTotalFees;
     }
   }
