@@ -15,57 +15,75 @@ contract yakuSwap is Ownable {
     SwapStatus status;
     uint startBlock;
     uint amount;
+    bytes32 secretHash;
     address fromAddress;
     address toAddress;
     uint16 maxBlockHeight;
   }
 
-  mapping (bytes32 => Swap) public swaps; // key = secretHash
+  mapping (bytes32 => Swap) public swaps;
   uint public totalFees = 0;
+
+  function getSwapId(bytes32 secretHash, address fromAddress) public pure returns (bytes32) {
+    return keccak256(abi.encodePacked(
+      secretHash,
+      fromAddress
+    ));
+  }
 
   function createSwap(bytes32 _secretHash, address _toAddress, uint16 _maxBlockHeight) payable public {
     require(msg.value >= 1000);
     require(_maxBlockHeight > 10);
-    require(swaps[_secretHash].status == SwapStatus.Uninitialized);
     require(_toAddress != address(0) && msg.sender != address(0));
 
+    bytes32 swapId = getSwapId(_secretHash, msg.sender);
+    require(swaps[swapId].status == SwapStatus.Uninitialized);
+    
     uint swapAmount = msg.value / 1000 * 993;
     Swap memory newSwap = Swap(
       SwapStatus.Created,
       block.number,
       swapAmount,
+      _secretHash,
       msg.sender,
       _toAddress,
       _maxBlockHeight
     );
 
-    swaps[_secretHash] = newSwap;
+    swaps[swapId] = newSwap;
     totalFees += msg.value - newSwap.amount;
   }
 
-  function completeSwap(bytes32 _secretHash, string memory _secret) public {
-    Swap storage swap = swaps[_secretHash];
+  function completeSwap(bytes32 _swapId, string memory _secret) public {
+    Swap storage swap = swaps[_swapId];
 
     require(swap.status == SwapStatus.Created);
     require(block.number < swap.startBlock + swap.maxBlockHeight);
-    require(_secretHash == sha256(abi.encodePacked(_secret)));
+    require(swap.secretHash == sha256(abi.encodePacked(_secret)));
 
     swap.status = SwapStatus.Completed;
-    payable(swap.toAddress).transfer(swap.amount);
+    if(!payable(swap.toAddress).send(swap.amount)) {
+      swap.status = SwapStatus.Created;
+    }
   }
 
-  function cancelSwap(bytes32 _secretHash) public {
-    Swap storage swap = swaps[_secretHash];
+  function cancelSwap(bytes32 _swapId) public {
+    Swap storage swap = swaps[_swapId];
 
     require(swap.status == SwapStatus.Created);
     require(block.number >= swap.startBlock + swap.maxBlockHeight);
 
     swap.status = SwapStatus.Cancelled;
-    payable(swap.fromAddress).transfer(swap.amount);
+    if(!payable(swap.fromAddress).send(swap.amount)) {
+      swap.status = SwapStatus.Created;
+    }
   }
 
   function getFees() public onlyOwner {
+    uint oldTotalFees = totalFees;
     totalFees = 0;
-    payable(owner()).transfer(totalFees);
+    if(!payable(owner()).send(totalFees)) {
+      totalFees = oldTotalFees;
+    }
   }
 }

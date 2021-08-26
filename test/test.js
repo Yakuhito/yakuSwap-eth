@@ -37,11 +37,13 @@ describe("yakuSwap Contract", function () {
   
       await transaction.wait();
   
-      const swap = await yakuSwap.connect(addr3).swaps(SECRET_HASH);
+      const swapId = await yakuSwap.connect(addr3).getSwapId(SECRET_HASH, addr1.address);
+      const swap = await yakuSwap.connect(addr3).swaps(swapId);
       const totalFees = await yakuSwap.connect(addr3).totalFees();
       expect(swap.status).to.equal(1);
       expect(swap.startBlock).to.equal(await ethers.provider.getBlockNumber());
       expect(swap.amount).to.equal(SWAP_AMOUNT_AFTER_FEE);
+      expect(swap.secretHash).to.equal(SECRET_HASH);
       expect(swap.fromAddress).to.equal(addr1.address);
       expect(swap.toAddress).to.equal(addr2.address);
       expect(swap.maxBlockHeight).to.equal(MAX_BLOCK_HEIGHT);
@@ -64,7 +66,7 @@ describe("yakuSwap Contract", function () {
       ).to.be.revertedWith("");
     });
 
-    it("Should fail if the same secretHash is used twice", async function () {
+    it("Should fail if the same secretHash is used twice by the same address", async function () {
       const transaction = await yakuSwap.connect(addr1).createSwap(SECRET_HASH, addr2.address, MAX_BLOCK_HEIGHT, {
         value: SWAP_AMOUNT,
       });
@@ -72,7 +74,7 @@ describe("yakuSwap Contract", function () {
       await transaction.wait();
 
       await expect(
-        yakuSwap.connect(addr3).createSwap(SECRET_HASH, addrs[0].address, MAX_BLOCK_HEIGHT * 2, {
+        yakuSwap.connect(addr1).createSwap(SECRET_HASH, addrs[0].address, MAX_BLOCK_HEIGHT * 2, {
           value: SWAP_AMOUNT.mul(2),
         })
       ).to.be.revertedWith("");
@@ -88,33 +90,39 @@ describe("yakuSwap Contract", function () {
   });
 
   describe("completeSwap", function () {
+    let swapId;
+
     beforeEach(async function () {
       const transaction = await yakuSwap.connect(addr1).createSwap(SECRET_HASH, addr2.address, MAX_BLOCK_HEIGHT, {
         value: SWAP_AMOUNT,
       });
   
       await transaction.wait();
+
+      swapId = await yakuSwap.connect(addr3).getSwapId(SECRET_HASH, addr1.address);
     });
 
 
     it("Should work if everyhting's ok", async function () {
-      const transaction = await yakuSwap.connect(addr3).completeSwap(SECRET_HASH, SECRET);
+      const transaction = await yakuSwap.connect(addr3).completeSwap(swapId, SECRET);
 
       await transaction.wait();
 
-      const swap = await yakuSwap.connect(addr3).swaps(SECRET_HASH);
+      const swap = await yakuSwap.connect(addr3).swaps(swapId);
       expect(swap.status).to.equal(2);
     });
 
     it("Should fail if secret is invalid", async function () {
       await expect(
-        yakuSwap.connect(addr2).completeSwap(SECRET_HASH, WRONG_SECRET)
+        yakuSwap.connect(addr2).completeSwap(swapId, WRONG_SECRET)
       ).to.be.revertedWith("");
     });
 
     it("Should fail if secretHash is invalid", async function () {
+      const wrongSwapId = await yakuSwap.connect(addr3).getSwapId(WRONG_SECRET_HASH, addr1.address);
+
       await expect(
-        yakuSwap.connect(addr2).completeSwap(WRONG_SECRET_HASH, WRONG_SECRET)
+        yakuSwap.connect(addr2).completeSwap(wrongSwapId, WRONG_SECRET)
       ).to.be.revertedWith("");
     });
 
@@ -123,28 +131,32 @@ describe("yakuSwap Contract", function () {
         await ethers.provider.send('evm_mine');
       }
       await expect(
-        yakuSwap.connect(addr2).completeSwap(SECRET_HASH, SECRET)
+        yakuSwap.connect(addr2).completeSwap(swapId, SECRET)
       ).to.be.revertedWith("");
     });
 
     it("Should fail if the swap was completed", async function () {
-      const transaction = await yakuSwap.connect(addr3).completeSwap(SECRET_HASH, SECRET);
+      const transaction = await yakuSwap.connect(addr3).completeSwap(swapId, SECRET);
 
       await transaction.wait();
 
       await expect(
-        yakuSwap.connect(addr2).completeSwap(SECRET_HASH, SECRET)
+        yakuSwap.connect(addr2).completeSwap(swapId, SECRET)
       ).to.be.revertedWith("");
     });
   });
 
   describe("cancelSwap", function () {
+    let swapId;
+
     beforeEach(async function () {
       const transaction = await yakuSwap.connect(addr1).createSwap(SECRET_HASH, addr2.address, MAX_BLOCK_HEIGHT, {
         value: SWAP_AMOUNT,
       });
   
       await transaction.wait();
+
+      swapId = await yakuSwap.connect(addr3).getSwapId(SECRET_HASH, addr1.address);
     });
 
     it("Should work if everyhting's ok", async function () {
@@ -152,11 +164,11 @@ describe("yakuSwap Contract", function () {
         await ethers.provider.send('evm_mine');
       }
 
-      const transaction = await yakuSwap.connect(addr3).cancelSwap(SECRET_HASH);
+      const transaction = await yakuSwap.connect(addr3).cancelSwap(swapId);
 
       await transaction.wait();
 
-      const swap = await yakuSwap.connect(addr3).swaps(SECRET_HASH);
+      const swap = await yakuSwap.connect(addr3).swaps(swapId);
       expect(swap.status).to.equal(3);
     });
 
@@ -165,19 +177,21 @@ describe("yakuSwap Contract", function () {
         await ethers.provider.send('evm_mine');
       }
 
+      const wrongSwapId = await yakuSwap.connect(addr3).getSwapId(WRONG_SECRET_HASH, addr1.address);
+
       await expect(
-        yakuSwap.connect(addr1).cancelSwap(WRONG_SECRET_HASH)
+        yakuSwap.connect(addr1).cancelSwap(wrongSwapId)
       ).to.be.revertedWith("");
     });
 
     it("Should fail if maxBlockHeight hasn't been reached yet", async function () {
       await expect(
-        yakuSwap.connect(addr1).cancelSwap(SECRET_HASH)
+        yakuSwap.connect(addr1).cancelSwap(swapId)
       ).to.be.revertedWith("");
     });
 
     it("Should fail if the swap has been completed before", async function () {
-      const transaction = await yakuSwap.connect(addr3).completeSwap(SECRET_HASH, SECRET);
+      const transaction = await yakuSwap.connect(addr3).completeSwap(swapId, SECRET);
 
       await transaction.wait();
 
@@ -186,7 +200,7 @@ describe("yakuSwap Contract", function () {
       }
 
       await expect(
-        yakuSwap.connect(addr1).cancelSwap(SECRET_HASH)
+        yakuSwap.connect(addr1).cancelSwap(swapId)
       ).to.be.revertedWith("");
     });
   });
@@ -199,7 +213,8 @@ describe("yakuSwap Contract", function () {
   
       await transaction.wait();
 
-      const transaction2 = await yakuSwap.connect(addr3).completeSwap(SECRET_HASH, SECRET);
+      const swapId = await yakuSwap.connect(addr3).getSwapId(SECRET_HASH, addr1.address);
+      const transaction2 = await yakuSwap.connect(addr3).completeSwap(swapId, SECRET);
 
       await transaction2.wait();
     });
