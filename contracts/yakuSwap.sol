@@ -24,6 +24,8 @@ contract yakuSwap is Ownable {
   mapping (bytes32 => Swap) public swaps;
   uint public totalFees = 0;
 
+  event SwapCompleted(bytes32 indexed _swapId, string _secret);
+
   function getSwapId(bytes32 secretHash, address fromAddress) public pure returns (bytes32) {
     return keccak256(abi.encodePacked(
       secretHash,
@@ -62,6 +64,7 @@ contract yakuSwap is Ownable {
     require(swap.secretHash == sha256(abi.encodePacked(_secret)));
 
     swap.status = SwapStatus.Completed;
+    emit SwapCompleted(_swapId, _secret);
     (bool success,) = swap.toAddress.call{value: swap.amount}("");
 
     require(success);
