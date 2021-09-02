@@ -1,0 +1,3 @@
+#!/bin/bash
+echo Deploying contract to localhost...
+npx hardhat --network localhost run scripts/deploy.js
