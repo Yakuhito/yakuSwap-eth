@@ -23,6 +23,8 @@ async function main() {
   await c.deployed();
 
   console.log("Contract address:", c.address);
+  await network.provider.send("evm_setAutomine", [false]);
+  await network.provider.send("evm_setIntervalMining", [5000]);
 }
 
 main()
