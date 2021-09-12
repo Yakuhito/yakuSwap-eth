@@ -2,13 +2,11 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-
-interface IERC20 {
-  function transferFrom(address _from, address _to, uint256 _amount) external returns (bool);
-  function transfer(address _to, uint256 _amount) external returns (bool);
-}
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract YakuSwap is Ownable {
+  using SafeERC20 for IERC20;
 
   // Uninitialized - Default status (if swaps[index] doesn't exist, status will get this value)
   // Created - the swap was created, but the mone is still in the contract
@@ -79,7 +77,7 @@ contract YakuSwap is Ownable {
     );
 
     require(swaps[swapHash] == SwapStatus.Uninitialized, "Invalid swap status");
-    require(IERC20(tokenAddress).transferFrom(msg.sender, address(this), amount), "Could not transfer tokens");
+    IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), amount);
 
     swaps[swapHash] = SwapStatus.Created;
     emit SwapCreated(
@@ -118,7 +116,7 @@ contract YakuSwap is Ownable {
     uint swapAmount = amount * 993 / 1000;
     totalFees[tokenAddress] += amount - swapAmount;
 
-    require(IERC20(tokenAddress).transfer(toAddress, swapAmount), "Transfer failed");
+    IERC20(tokenAddress).safeTransfer(toAddress, swapAmount);
   }
 
   function cancelSwap(
@@ -141,13 +139,13 @@ contract YakuSwap is Ownable {
     require(block.number >= blockNumber + MAX_BLOCK_HEIGHT, "MAX_BLOCK_HEIGHT not exceeded");
 
     swaps[swapHash] = SwapStatus.Cancelled;
-    require(IERC20(tokenAddress).transfer(msg.sender, amount), "Transfer failed");
+    IERC20(tokenAddress).safeTransfer(msg.sender, amount);
   }
 
   function withdrawFees(address tokenAddress) external onlyOwner {
     uint feesToWithdraw = totalFees[tokenAddress];
     totalFees[tokenAddress] = 0;
 
-    require(IERC20(tokenAddress).transfer(msg.sender, feesToWithdraw), "Transfer failed");
+    IERC20(tokenAddress).safeTransfer(msg.sender, feesToWithdraw);
   }
 }
