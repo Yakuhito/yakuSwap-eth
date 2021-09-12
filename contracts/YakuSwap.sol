@@ -1,7 +1,12 @@
-//SPDX-License-Identifier: MIT
+//SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+
+interface IERC20 {
+  function transferFrom(address _from, address _to, uint256 _amount) external returns (bool);
+  function transfer(address _to, uint256 _amount) external returns (bool);
+}
 
 contract YakuSwap is Ownable {
 
@@ -12,32 +17,34 @@ contract YakuSwap is Ownable {
   enum SwapStatus {Uninitialized, Created, Completed, Cancelled}
 
   mapping(bytes32 => SwapStatus) public swaps;
-
-  uint public totalFees = 0;
+  mapping(address => uint) public totalFees;
 
   uint constant public MAX_BLOCK_HEIGHT = 256;
 
   event SwapCreated(
-    bytes32 indexed swapHash,
+    bytes32 swapHash,
+    address indexed tokenAddress,
     address indexed fromAddress,
     address indexed toAddress,
-    uint value,
+    uint amount,
     bytes32 secretHash,
     uint blockNumber
   );
   
   function _getSwapHash(
+    address tokenAddress,
     address fromAddress,
     address toAddress,
-    uint value,
+    uint amount,
     bytes32 secretHash,
     uint blockNumber
   ) internal view returns (bytes32) {
     return keccak256(
       abi.encode(
+        tokenAddress,
         fromAddress,
         toAddress,
-        value,
+        amount,
         secretHash,
         blockNumber,
         block.chainid
@@ -46,53 +53,60 @@ contract YakuSwap is Ownable {
   }
 
   function getSwapHash(
+    address tokenAddress,
     address fromAddress,
     address toAddress,
-    uint value,
+    uint amount,
     bytes32 secretHash,
     uint blockNumber
   ) external view returns (bytes32) {
     return _getSwapHash(
-      fromAddress, toAddress, value, secretHash, blockNumber
+      tokenAddress, fromAddress, toAddress, amount, secretHash, blockNumber
     );
   }
 
-  function createSwap(address toAddress, bytes32 secretHash) payable external {
+  function createSwap(address tokenAddress, address toAddress, uint amount, bytes32 secretHash) external {
     require(toAddress != address(0), "Destination address cannot be zero");
+    require(tokenAddress != address(0), "Token contract address cannot be zero");
 
     bytes32 swapHash = _getSwapHash(
+      tokenAddress,
       msg.sender,
       toAddress,
-      msg.value,
+      amount,
       secretHash,
       block.number
     );
 
-    require(swaps[swapHash] == SwapStatus.Uninitialized);
-    swaps[swapHash] = SwapStatus.Created;
+    require(swaps[swapHash] == SwapStatus.Uninitialized, "Invalid swap status");
+    require(IERC20(tokenAddress).transferFrom(msg.sender, address(this), amount), "Could not transfer tokens");
 
+    swaps[swapHash] = SwapStatus.Created;
     emit SwapCreated(
       swapHash,
+      tokenAddress,
       msg.sender,
       toAddress,
-      msg.value,
+      amount,
       secretHash,
       block.number
     );
   }
 
   function completeSwap(
+    address tokenAddress,
     address fromAddress,
     address toAddress,
-    uint value,
+    uint amount,
     uint blockNumber,
     string memory secret
   ) external {
     bytes32 secretHash = sha256(abi.encodePacked(secret));
     bytes32 swapHash = _getSwapHash(
+      tokenAddress,
       fromAddress,
       toAddress,
-      value,
+      amount,
       secretHash,
       blockNumber
     );
@@ -101,23 +115,24 @@ contract YakuSwap is Ownable {
     require(block.number < blockNumber + MAX_BLOCK_HEIGHT, "Deadline exceeded");
     swaps[swapHash] = SwapStatus.Completed;
 
-    uint swapAmount = value * 993 / 1000;
-    totalFees += value - swapAmount;
+    uint swapAmount = amount * 993 / 1000;
+    totalFees[tokenAddress] += amount - swapAmount;
 
-    (bool success,) = toAddress.call{value : swapAmount}("");
-    require(success, "Transfer failed");
+    require(IERC20(tokenAddress).transfer(toAddress, swapAmount), "Transfer failed");
   }
 
   function cancelSwap(
+    address tokenAddress,
     address toAddress,
-    uint value,
+    uint amount,
     bytes32 secretHash,
     uint blockNumber
   ) public {
     bytes32 swapHash = _getSwapHash(
+      tokenAddress,
       msg.sender,
       toAddress,
-      value,
+      amount,
       secretHash,
       blockNumber
     );
@@ -126,15 +141,13 @@ contract YakuSwap is Ownable {
     require(block.number >= blockNumber + MAX_BLOCK_HEIGHT, "MAX_BLOCK_HEIGHT not exceeded");
 
     swaps[swapHash] = SwapStatus.Cancelled;
-    (bool success,) = msg.sender.call{value : value}("");
-    require(success, "Transfer failed");
+    require(IERC20(tokenAddress).transfer(msg.sender, amount), "Transfer failed");
   }
 
-  function withdrawFees() external onlyOwner {
-    uint feesToWithdraw = totalFees;
-    totalFees = 0;
+  function withdrawFees(address tokenAddress) external onlyOwner {
+    uint feesToWithdraw = totalFees[tokenAddress];
+    totalFees[tokenAddress] = 0;
 
-    (bool success,) = owner().call{value : feesToWithdraw}("");
-    require(success, "Transfer failed");
+    require(IERC20(tokenAddress).transfer(msg.sender, feesToWithdraw), "Transfer failed");
   }
 }
